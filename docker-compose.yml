@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # NATS JetStream for message bus
+  nats:
+    image: nats:latest
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # Monitoring
+    networks:
+      - voice-net
+
+  # Voice Gateway (WebRTC + HTTP)
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - NATS_URL=nats://nats:4222
+      - ASR_URL=asr-worker:50051
+      - TTS_URL=tts-worker:50052
+    depends_on:
+      - nats
+    networks:
+      - voice-net
+    volumes:
+      - ./recordings:/app/recordings
+
+  # ASR Worker (Speech Recognition)
+  asr-worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.asr-worker
+    environment:
+      - NATS_URL=nats://nats:4222
+    depends_on:
+      - nats
+    networks:
+      - voice-net
+
+  # TTS Worker (Text-to-Speech)
+  tts-worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.tts-worker
+    environment:
+      - NATS_URL=nats://nats:4222
+    depends_on:
+      - nats
+    networks:
+      - voice-net
+
+networks:
+  voice-net:
+    driver: bridge
+
+volumes:
+  recordings:

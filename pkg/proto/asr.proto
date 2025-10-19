@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package voicegateway.asr;
+
+option go_package = "voice-gateway/pkg/proto/asr";
+
+// ASR service for streaming speech recognition
+service ASRService {
+  // StreamRecognize performs bidirectional streaming speech recognition
+  rpc StreamRecognize(stream AudioChunk) returns (stream TranscriptResponse);
+}
+
+// AudioChunk represents a chunk of audio data
+message AudioChunk {
+  // Session ID for tracking the conversation
+  string session_id = 1;
+
+  // Audio data in PCM format
+  bytes audio_data = 2;
+
+  // Sample rate (e.g., 16000, 48000)
+  int32 sample_rate = 3;
+
+  // Number of channels (1 for mono, 2 for stereo)
+  int32 channels = 4;
+
+  // Timestamp in milliseconds
+  int64 timestamp_ms = 5;
+}
+
+// TranscriptResponse contains the recognition result
+message TranscriptResponse {
+  // Session ID
+  string session_id = 1;
+
+  // Transcript text
+  string text = 2;
+
+  // Whether this is a final result or partial
+  bool is_final = 3;
+
+  // Confidence score (0.0 to 1.0)
+  float confidence = 4;
+
+  // Start time of this utterance
+  int64 start_time_ms = 5;
+
+  // End time of this utterance
+  int64 end_time_ms = 6;
+
+  // Language detected
+  string language = 7;
+}

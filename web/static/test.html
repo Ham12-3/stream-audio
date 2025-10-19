@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Gateway - Debug Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #00ff00;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            background: #333;
+            border-left: 4px solid #00ff00;
+        }
+        .error {
+            border-left-color: #ff0000;
+            color: #ff0000;
+        }
+        .log {
+            background: #000;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Voice Gateway - Debug Test</h1>
+    <div id="status" class="status">Ready to test</div>
+    <button id="startBtn">Start Echo Test</button>
+    <button id="stopBtn" style="display:none;">Stop</button>
+    <div class="log" id="logs"></div>
+
+    <script>
+        let peerConnection = null;
+        let localStream = null;
+
+        const statusEl = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const logsEl = document.getElementById('logs');
+
+        function log(message, isError = false) {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.textContent = `[${timestamp}] ${message}`;
+            if (isError) entry.style.color = '#ff0000';
+            logsEl.appendChild(entry);
+            logsEl.scrollTop = logsEl.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStatus(text, isError = false) {
+            statusEl.textContent = text;
+            statusEl.className = isError ? 'status error' : 'status';
+        }
+
+        async function startEcho() {
+            try {
+                log('=== Starting Echo Test ===');
+                updateStatus('Requesting microphone...');
+
+                // Get microphone
+                log('1. Requesting microphone access...');
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: false
+                });
+                log('✓ Microphone access granted');
+
+                // Create peer connection WITHOUT STUN (not needed for localhost)
+                log('2. Creating peer connection...');
+                peerConnection = new RTCPeerConnection({
+                    iceServers: []  // Empty - localhost doesn't need STUN
+                });
+                log('✓ Peer connection created');
+
+                // Add tracks
+                log('3. Adding audio track...');
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+                log('✓ Audio track added');
+
+                // Handle incoming audio
+                peerConnection.ontrack = (event) => {
+                    log('✓ Received remote audio track');
+                    const audio = new Audio();
+                    audio.srcObject = event.streams[0];
+                    audio.play().then(() => {
+                        log('✓ Playing audio');
+                        updateStatus('Connected - Speak now!');
+                    });
+                };
+
+                // Monitor states
+                peerConnection.onconnectionstatechange = () => {
+                    log(`Connection state: ${peerConnection.connectionState}`);
+                    if (peerConnection.connectionState === 'failed') {
+                        log('✗ Connection failed!', true);
+                        updateStatus('Connection failed', true);
+                    }
+                };
+
+                peerConnection.oniceconnectionstatechange = () => {
+                    log(`ICE state: ${peerConnection.iceConnectionState}`);
+                };
+
+                peerConnection.onicegatheringstatechange = () => {
+                    log(`ICE gathering: ${peerConnection.iceGatheringState}`);
+                };
+
+                // Create offer
+                log('4. Creating offer...');
+                const offer = await peerConnection.createOffer();
+                log('✓ Offer created');
+
+                // Set local description
+                log('5. Setting local description...');
+                await peerConnection.setLocalDescription(offer);
+                log('✓ Local description set');
+
+                // Wait for ICE gathering to complete
+                log('6. Waiting for ICE candidates...');
+                if (peerConnection.iceGatheringState !== 'complete') {
+                    await new Promise(resolve => {
+                        const checkState = () => {
+                            if (peerConnection.iceGatheringState === 'complete') {
+                                peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                                resolve();
+                            }
+                        };
+                        peerConnection.addEventListener('icegatheringstatechange', checkState);
+                        // Timeout after 3 seconds
+                        setTimeout(resolve, 3000);
+                    });
+                }
+                log('✓ ICE gathering complete');
+
+                // Send offer to server
+                log('7. Sending offer to server...');
+                updateStatus('Connecting to server...');
+
+                const response = await fetch('/offer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sdp: JSON.stringify(peerConnection.localDescription)
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+                log('✓ Server responded');
+
+                const data = await response.json();
+                const answer = JSON.parse(data.sdp);
+                log('✓ Received answer from server');
+
+                // Set remote description
+                log('8. Setting remote description...');
+                await peerConnection.setRemoteDescription(answer);
+                log('✓ Remote description set');
+
+                log('=== Connection established ===');
+                updateStatus('Connecting...');
+
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+
+            } catch (error) {
+                log(`✗ Error: ${error.message}`, true);
+                updateStatus(`Error: ${error.message}`, true);
+                stopEcho();
+            }
+        }
+
+        function stopEcho() {
+            log('=== Stopping ===');
+
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            updateStatus('Disconnected');
+            startBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+        }
+
+        startBtn.addEventListener('click', startEcho);
+        stopBtn.addEventListener('click', stopEcho);
+
+        log('Voice Gateway Debug Test ready');
+        log('Click "Start Echo Test" to begin');
+    </script>
+</body>
+</html>

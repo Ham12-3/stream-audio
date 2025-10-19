@@ -1,0 +1,24 @@
+# Multi-stage build for ASR worker
+FROM golang:1.25.3-alpine AS builder
+
+RUN apk add --no-cache git make
+
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o asr-worker ./cmd/asr-worker
+
+# Final stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /app
+
+COPY --from=builder /build/asr-worker .
+
+CMD ["./asr-worker"]

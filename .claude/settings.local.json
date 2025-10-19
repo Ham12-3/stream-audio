@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sL https://go.dev/VERSION?m=text)",
+      "Read(//tmp/**)",
+      "Bash(wget -q https://go.dev/dl/go1.25.3.linux-amd64.tar.gz)",
+      "Bash(tar -C $HOME -xzf go1.25.3.linux-amd64.tar.gz)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
